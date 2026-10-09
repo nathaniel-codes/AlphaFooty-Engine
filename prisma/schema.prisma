@@ -53,3 +53,15 @@ model NotificationLog {
   @@unique([eventKey, stage])
   @@index([sentAt])
 }
+
+model DigestLog {
+  id              String   @id @default(cuid())
+  digestDate      String   // YYYY-MM-DD in Africa/Nairobi
+  qualifyingCount Int      @default(0)
+  sent            Boolean  @default(false)
+  statusMessage   String
+  createdAt       DateTime @default(now())
+
+  @@unique([digestDate])
+  @@index([createdAt])
+}

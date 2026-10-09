@@ -34,6 +34,8 @@ export interface NormalizedEvent {
   competition: string;
   homeTeam: string;
   awayTeam: string;
+  homeTeamId?: string;
+  awayTeamId?: string;
   homeScore: number;
   awayScore: number;
   status: "scheduled" | "live" | "halftime" | "finished";
@@ -146,7 +148,7 @@ export async function fetchEspnEvents(): Promise<NormalizedEvent[]> {
             competitors?: Array<{
               homeAway?: string;
               score?: string;
-              team?: { displayName?: string; name?: string };
+              team?: { id?: string; displayName?: string; name?: string };
             }>;
           }>;
         }>;
@@ -171,6 +173,8 @@ export async function fetchEspnEvents(): Promise<NormalizedEvent[]> {
           competition: HIGH_TEMPO_LEAGUES[league],
           homeTeam: home?.team?.displayName || home?.team?.name || "Home",
           awayTeam: away?.team?.displayName || away?.team?.name || "Away",
+          homeTeamId: home?.team?.id,
+          awayTeamId: away?.team?.id,
           homeScore: Number(home?.score || 0),
           awayScore: Number(away?.score || 0),
           status,

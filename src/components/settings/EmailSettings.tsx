@@ -87,8 +87,8 @@ export default function EmailSettings() {
         <h3 className="text-lg font-semibold text-slate-100">Email Alerts</h3>
       </div>
       <p className="mt-1 text-sm text-slate-400">
-        SMTP alerts for Strategy D goal volume, HT 0-0 stages, and corner compression.
-        Deduped per match/stage.
+        SMTP alerts for Strategy D, HT 0-0, corners, plus a Daily Matchday Digest every day at
+        10:00 EAT. Live alerts deduped per match/stage; digest once per day.
       </p>
 
       <label className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-3 text-sm text-slate-200">
