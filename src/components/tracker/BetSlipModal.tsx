@@ -44,6 +44,8 @@ export default function BetSlipModal({
   ]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [sessionSlipCount, setSessionSlipCount] = useState(0);
+  const [priorSlipLost, setPriorSlipLost] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -61,16 +63,21 @@ export default function BetSlipModal({
     setStatus("Pending");
     setNotes("");
     if (seedFromOpportunity) {
+      const isLiveHt = seedFromOpportunity.type === "halftime_00";
       setStrategy(
-        seedFromOpportunity.type === "halftime_00"
+        isLiveHt
           ? "Custom Live Trigger (Halftime 0 : 0)"
           : "Strategy D (High Tempo Goal Engine)"
       );
       setLegs([
         {
           matchName: `${seedFromOpportunity.homeTeam} vs ${seedFromOpportunity.awayTeam}`,
-          market: seedFromOpportunity.recommendedMarket,
-          odds: seedFromOpportunity.suggestedOdds || 1.5,
+          market: isLiveHt
+            ? "Over 0.5 Match Goals"
+            : seedFromOpportunity.recommendedMarket,
+          odds: isLiveHt
+            ? 1.6
+            : seedFromOpportunity.suggestedOdds || 1.5,
         },
       ]);
     } else {
@@ -79,6 +86,27 @@ export default function BetSlipModal({
       setStake(10000);
     }
   }, [open, initial, initialDate, seedFromOpportunity]);
+
+  // Sequential staggered slip discipline for the selected evening
+  useEffect(() => {
+    if (!open || initial?.id) {
+      setSessionSlipCount(0);
+      setPriorSlipLost(false);
+      return;
+    }
+    const day = (initialDate || date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    fetch(`/api/bets?date=${day}&pageSize=50`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        const items = (data.items || []) as Array<{ status: string; date: string }>;
+        setSessionSlipCount(items.length);
+        setPriorSlipLost(items.some((s) => s.status === "Lost"));
+      })
+      .catch(() => {
+        setSessionSlipCount(0);
+        setPriorSlipLost(false);
+      });
+  }, [open, initial?.id, initialDate, date]);
 
   const settlement = useMemo(
     () => calculateSettlement(stake, legs, status),
@@ -135,6 +163,27 @@ export default function BetSlipModal({
         </div>
 
         <div className="space-y-4 p-4">
+          {!initial?.id && sessionSlipCount >= 1 && (
+            <div
+              className={`rounded-lg border px-3 py-3 text-sm leading-relaxed ${
+                priorSlipLost
+                  ? "border-rose-500/40 bg-rose-500/10 text-rose-200"
+                  : "border-amber-500/40 bg-amber-500/10 text-amber-100"
+              }`}
+            >
+              <div className="font-semibold">Discipline Check</div>
+              <p className="mt-1">
+                Slip {sessionSlipCount + 1} may only be deployed using house profit from a settled
+                winning Slip 1. If Slip 1 lost, stop trading for the session.
+              </p>
+              {priorSlipLost && (
+                <p className="mt-2 font-medium text-rose-300">
+                  Session lock: a lost slip is already logged today — do not stack further risk.
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm text-slate-300">
               Date

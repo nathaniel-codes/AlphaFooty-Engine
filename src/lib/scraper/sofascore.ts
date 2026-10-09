@@ -3,34 +3,21 @@
  * Primary: ESPN site API (works without API keys).
  * Secondary: Sofascore public API when reachable (X-Requested-With + browser headers).
  * Tertiary: TheSportsDB free calendar feed.
+ *
+ * Hard-gated to the strict high-transition whitelist only.
  */
 
-export const HIGH_TEMPO_LEAGUES: Record<string, string> = {
-  "eng.1": "English Premier League",
-  "ger.1": "German Bundesliga",
-  "ned.1": "Dutch Eredivisie",
-  "uefa.champions": "UEFA Champions League",
-  "uefa.europa": "UEFA Europa League",
-  "ita.1": "Italian Serie A",
-  "fra.1": "French Ligue 1",
-  "esp.1": "Spanish LaLiga",
-  "por.1": "Portuguese Liga Portugal",
-  "bel.1": "Belgian Pro League",
-};
+import {
+  WHITELIST_ESPN_KEYS,
+  WHITELIST_GPG_BASELINES,
+  WHITELIST_SOFA_IDS,
+  isWhitelistedEvent,
+} from "@/lib/leagueWhitelist";
 
-/** Sofascore uniqueTournament IDs mapped for optional secondary source */
-export const SOFA_LEAGUE_IDS: Record<number, string> = {
-  17: "English Premier League",
-  35: "German Bundesliga",
-  37: "Dutch Eredivisie",
-  7: "UEFA Champions League",
-  8: "UEFA Europa League",
-  23: "Italian Serie A",
-  34: "French Ligue 1",
-  36: "Spanish LaLiga",
-  44: "Portuguese Liga Portugal",
-  18: "Belgian Pro League",
-};
+export const HIGH_TEMPO_LEAGUES: Record<string, string> = { ...WHITELIST_ESPN_KEYS };
+
+/** Sofascore uniqueTournament IDs — whitelist only */
+export const SOFA_LEAGUE_IDS: Record<number, string> = { ...WHITELIST_SOFA_IDS };
 
 const BROWSER_HEADERS: Record<string, string> = {
   "User-Agent":
@@ -299,27 +286,13 @@ export async function fetchTheSportsDbDay(): Promise<NormalizedEvent[]> {
     90_000
   );
 
-  const highTempoNames = Object.values(HIGH_TEMPO_LEAGUES).map((n) => n.toLowerCase());
-  const aliases = [
-    "premier league",
-    "bundesliga",
-    "eredivisie",
-    "champions league",
-    "europa league",
-    "serie a",
-    "ligue 1",
-    "laliga",
-    "la liga",
-  ];
-
   return (data?.events || [])
-    .filter((e) => {
-      const league = (e.strLeague || "").toLowerCase();
-      return (
-        highTempoNames.some((n) => league.includes(n.split(" ").slice(-1)[0].toLowerCase())) ||
-        aliases.some((a) => league.includes(a))
-      );
-    })
+    .filter((e) =>
+      isWhitelistedEvent({
+        leagueKey: e.strLeague || "",
+        competition: e.strLeague || "",
+      })
+    )
     .map((e) => {
       const progress = (e.strProgress || "").replace("'", "");
       const minute = Number(progress);
@@ -355,72 +328,61 @@ export async function leagueGoalAverage(leagueKey: string, events: NormalizedEve
     return Math.round((total / finished.length) * 100) / 100;
   }
 
-  const BASELINES: Record<string, number> = {
-    "eng.1": 2.85,
-    "ger.1": 3.15,
-    "ned.1": 3.25,
-    "uefa.champions": 2.95,
-    "uefa.europa": 2.75,
-    "ita.1": 2.7,
-    "fra.1": 2.8,
-    "esp.1": 2.65,
-    "por.1": 2.7,
-    "bel.1": 2.9,
-  };
-  return BASELINES[leagueKey] ?? 2.7;
+  return WHITELIST_GPG_BASELINES[leagueKey] ?? 0;
 }
 
 export async function fetchAllNormalizedEvents(): Promise<{
   events: NormalizedEvent[];
   source: string;
 }> {
-  const espn = await fetchEspnEvents();
+  const espn = (await fetchEspnEvents()).filter(isWhitelistedEvent);
   if (espn.length) {
-    // Enrich with TheSportsDB only if ESPN returned sparse coverage
     return { events: espn, source: "espn" };
   }
 
   const sofa = await fetchSofaLiveRaw();
   if (sofa?.length) {
-    // Minimal mapping if Sofascore opens up
-    const mapped: NormalizedEvent[] = (sofa as Array<Record<string, unknown>>).map((raw) => {
-      const e = raw as {
-        id: number;
-        homeTeam: { name: string };
-        awayTeam: { name: string };
-        homeScore?: { current?: number };
-        awayScore?: { current?: number };
-        status?: { code?: number; description?: string; type?: string };
-        tournament?: { uniqueTournament?: { id: number; name: string }; name?: string };
-        startTimestamp?: number;
-      };
-      const desc = (e.status?.description || "").toLowerCase();
-      let status: NormalizedEvent["status"] = "scheduled";
-      if (e.status?.code === 7 || desc.includes("halftime")) status = "halftime";
-      else if (e.status?.type === "inprogress") status = "live";
-      else if (e.status?.type === "finished") status = "finished";
+    const mapped: NormalizedEvent[] = (sofa as Array<Record<string, unknown>>)
+      .map((raw) => {
+        const e = raw as {
+          id: number;
+          homeTeam: { name: string };
+          awayTeam: { name: string };
+          homeScore?: { current?: number };
+          awayScore?: { current?: number };
+          status?: { code?: number; description?: string; type?: string };
+          tournament?: { uniqueTournament?: { id: number; name: string }; name?: string };
+          startTimestamp?: number;
+        };
+        const desc = (e.status?.description || "").toLowerCase();
+        let status: NormalizedEvent["status"] = "scheduled";
+        if (e.status?.code === 7 || desc.includes("halftime")) status = "halftime";
+        else if (e.status?.type === "inprogress") status = "live";
+        else if (e.status?.type === "finished") status = "finished";
 
-      return {
-        id: `sofa-${e.id}`,
-        source: "sofascore" as const,
-        leagueKey: String(e.tournament?.uniqueTournament?.id || "unknown"),
-        competition:
-          e.tournament?.uniqueTournament?.name || e.tournament?.name || "Football",
-        homeTeam: e.homeTeam.name,
-        awayTeam: e.awayTeam.name,
-        homeScore: e.homeScore?.current ?? 0,
-        awayScore: e.awayScore?.current ?? 0,
-        status,
-        minute: null,
-        kickoff: e.startTimestamp
-          ? new Date(e.startTimestamp * 1000).toISOString()
-          : null,
-      };
-    });
-    return { events: mapped, source: "sofascore" };
+        return {
+          id: `sofa-${e.id}`,
+          source: "sofascore" as const,
+          leagueKey: String(e.tournament?.uniqueTournament?.id || "unknown"),
+          competition:
+            e.tournament?.uniqueTournament?.name || e.tournament?.name || "Football",
+          homeTeam: e.homeTeam.name,
+          awayTeam: e.awayTeam.name,
+          homeScore: e.homeScore?.current ?? 0,
+          awayScore: e.awayScore?.current ?? 0,
+          status,
+          minute: null,
+          kickoff: e.startTimestamp
+            ? new Date(e.startTimestamp * 1000).toISOString()
+            : null,
+        };
+      })
+      .filter(isWhitelistedEvent);
+
+    if (mapped.length) return { events: mapped, source: "sofascore" };
   }
 
-  const tsdb = await fetchTheSportsDbDay();
+  const tsdb = (await fetchTheSportsDbDay()).filter(isWhitelistedEvent);
   return { events: tsdb, source: tsdb.length ? "thesportsdb" : "none" };
 }
 
@@ -437,12 +399,7 @@ export function isHalftimeWindow(event: NormalizedEvent): boolean {
 }
 
 export function isHighTempoLeague(event: NormalizedEvent): boolean {
-  if (event.leagueKey in HIGH_TEMPO_LEAGUES) return true;
-  const name = event.competition.toLowerCase();
-  return Object.values(HIGH_TEMPO_LEAGUES).some((n) =>
-    name.includes(n.split(" ").slice(-2).join(" ").toLowerCase()) ||
-    name.includes(n.toLowerCase())
-  );
+  return isWhitelistedEvent(event);
 }
 
 export function competitionName(event: NormalizedEvent): string {

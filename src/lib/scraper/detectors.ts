@@ -1,4 +1,5 @@
 import type { Opportunity } from "../types";
+import { isWhitelistedEvent } from "@/lib/leagueWhitelist";
 import {
   NormalizedEvent,
   competitionName,
@@ -16,9 +17,20 @@ function badgeFor(event: NormalizedEvent): Opportunity["badge"] {
   return "Upcoming";
 }
 
+function passesShotGate(shotsTotal: number, shotsOnTarget: number): boolean {
+  // CRITICAL: abort if SoT <= 2
+  return shotsTotal >= 8 && shotsOnTarget >= 3;
+}
+
+function passesCornerPossession(home: number, away: number): boolean {
+  const delta = home - away;
+  return home >= 62 && away <= 40 && delta >= 20;
+}
+
+/** Engine A — Halftime 0-0 Goal Inevitability (Stage 1 radar cards) */
 async function detectHalftimeTriggers(events: NormalizedEvent[]): Promise<Opportunity[]> {
   const candidates = events.filter((e) => {
-    if (!isHighTempoLeague(e)) return false;
+    if (!isWhitelistedEvent(e) || !isHighTempoLeague(e)) return false;
     if (!isHalftimeWindow(e) && e.status !== "halftime") return false;
     return e.homeScore === 0 && e.awayScore === 0;
   });
@@ -31,8 +43,7 @@ async function detectHalftimeTriggers(events: NormalizedEvent[]): Promise<Opport
       const shotsTotal = stats?.shotsTotal ?? 0;
       const shotsOnTarget = stats?.shotsOnTarget ?? 0;
 
-      // Strategy D: combined shots >= 8 and SoT >= 3
-      if (shotsTotal < 8 || shotsOnTarget < 3) return;
+      if (!passesShotGate(shotsTotal, shotsOnTarget)) return;
 
       opportunities.push({
         id: `ht00-${event.id}`,
@@ -48,11 +59,11 @@ async function detectHalftimeTriggers(events: NormalizedEvent[]): Promise<Opport
         shotsOnTarget,
         possessionHome: stats?.possessionHome ?? null,
         possessionAway: stats?.possessionAway ?? null,
-        recommendedMarket: "Over 0.5 Goals",
-        recommendedEntry: "Minute 58",
+        recommendedMarket: "Over 0.5 Match Goals",
+        recommendedEntry: "Minute 58 to 62",
         rationale:
-          "Halftime 0 : 0 Goal Trigger Active. Recommended entry at minute 58 for Over 0.5 Goals.",
-        suggestedOdds: 1.45,
+          "RADAR ACTIVE — Halftime 0 : 0 with ≥8 shots / ≥3 SoT. Enter Over 0.5 Match Goals only between minute 58 and 62.",
+        suggestedOdds: 1.6,
         kickoff: event.kickoff,
         detectedAt: new Date().toISOString(),
       });
@@ -62,9 +73,10 @@ async function detectHalftimeTriggers(events: NormalizedEvent[]): Promise<Opport
   return opportunities;
 }
 
+/** Engine B — Pre-match / live goal volume (whitelist + GPG ≥ 3.0) */
 async function detectGoalVolume(events: NormalizedEvent[]): Promise<Opportunity[]> {
   const pool = events.filter(
-    (e) => isHighTempoLeague(e) && e.status !== "finished"
+    (e) => isWhitelistedEvent(e) && e.status !== "finished"
   );
 
   const leagueKeys = Array.from(new Set(pool.map((e) => e.leagueKey)));
@@ -82,7 +94,7 @@ async function detectGoalVolume(events: NormalizedEvent[]): Promise<Opportunity[
     if (seen.has(event.id)) continue;
     seen.add(event.id);
     const avg = avgMap.get(event.leagueKey);
-    if (avg == null || avg <= 3.0) continue;
+    if (avg == null || avg < 3.0) continue;
 
     opportunities.push({
       id: `gv-${event.id}`,
@@ -95,11 +107,11 @@ async function detectGoalVolume(events: NormalizedEvent[]): Promise<Opportunity[
       minute: event.minute,
       score: event.status === "scheduled" ? "vs" : scoreLine(event),
       leagueAvgGoals: avg,
-      recommendedMarket: "Over 1.5 / Asian Over 2.0",
-      rationale: `League goal average ${avg.toFixed(
+      recommendedMarket: "Asian Total Over 2.0",
+      rationale: `League GPG ${avg.toFixed(
         2
-      )} GPG (> 3.0). Surfacing Over 1.5 and Asian Over 2.0 lines.`,
-      suggestedOdds: 1.55,
+      )} (≥ 3.0). Primary: Asian Over 2.0 (push on exactly 2). Fallback: Over 1.5 in a double, or Over 2.5 standalone @ ≥1.50.`,
+      suggestedOdds: 1.4,
       kickoff: event.kickoff,
       detectedAt: new Date().toISOString(),
     });
@@ -110,9 +122,10 @@ async function detectGoalVolume(events: NormalizedEvent[]): Promise<Opportunity[
     .slice(0, 18);
 }
 
+/** Engine C — Low Block Corner Compression */
 async function detectCornerCompression(events: NormalizedEvent[]): Promise<Opportunity[]> {
   const candidates = events
-    .filter((e) => isHighTempoLeague(e) && (e.status === "live" || e.status === "halftime"))
+    .filter((e) => isWhitelistedEvent(e) && (e.status === "live" || e.status === "halftime"))
     .slice(0, 15);
 
   const opportunities: Opportunity[] = [];
@@ -121,10 +134,9 @@ async function detectCornerCompression(events: NormalizedEvent[]): Promise<Oppor
     candidates.map(async (event) => {
       const stats = await fetchEventStatistics(event);
       if (!stats || stats.possessionHome == null || stats.possessionAway == null) return;
+      if (!passesCornerPossession(stats.possessionHome, stats.possessionAway)) return;
 
       const delta = stats.possessionHome - stats.possessionAway;
-      if (delta < 20) return;
-
       opportunities.push({
         id: `cc-${event.id}`,
         type: "corner_compression",
@@ -139,11 +151,11 @@ async function detectCornerCompression(events: NormalizedEvent[]): Promise<Oppor
         possessionAway: stats.possessionAway,
         shotsTotal: stats.shotsTotal,
         shotsOnTarget: stats.shotsOnTarget,
-        recommendedMarket: "Over 5.5 Team Corners (Home)",
-        rationale: `Low Block Corner Compression: home possession delta +${delta.toFixed(
+        recommendedMarket: "Home Over 5.5 Team Corners",
+        rationale: `Low Block Corner Compression: home ${stats.possessionHome}% / away ${stats.possessionAway}% (Δ +${delta.toFixed(
           0
-        )}% (${stats.possessionHome}% vs ${stats.possessionAway}%). Flagging Over 5.5 Team Corners.`,
-        suggestedOdds: 1.72,
+        )}%). Primary Home Over 5.5 @ 1.65–1.80. Fallback: Match Corners Over 9.5/10.5 (expected 10–13).`,
+        suggestedOdds: 1.7,
         kickoff: event.kickoff,
         detectedAt: new Date().toISOString(),
       });
@@ -170,8 +182,9 @@ export async function runOpportunityScan(): Promise<ScanResult> {
 
   try {
     const { events, source } = await fetchAllNormalizedEvents();
+    const whitelisted = events.filter(isWhitelistedEvent);
 
-    if (!events.length) {
+    if (!whitelisted.length) {
       return {
         opportunities: [],
         meta: {
@@ -182,16 +195,16 @@ export async function runOpportunityScan(): Promise<ScanResult> {
           nextPollSeconds: 60,
         },
         error:
-          "No fixtures returned from public sports endpoints. Will retry on next poll.",
+          "No whitelisted fixtures (EPL / Bundesliga / 2. Bundesliga / Eredivisie / UCL) right now.",
       };
     }
 
-    const live = events.filter((e) => e.status === "live" || e.status === "halftime");
-    const scheduled = events.filter((e) => e.status === "scheduled");
+    const live = whitelisted.filter((e) => e.status === "live" || e.status === "halftime");
+    const scheduled = whitelisted.filter((e) => e.status === "scheduled");
 
     const [ht, gv, cc] = await Promise.all([
-      detectHalftimeTriggers(events),
-      detectGoalVolume(events),
+      detectHalftimeTriggers(whitelisted),
+      detectGoalVolume(whitelisted),
       detectCornerCompression(live),
     ]);
 

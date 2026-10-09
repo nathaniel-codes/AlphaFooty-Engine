@@ -12,8 +12,11 @@ export function productOdds(legs: BetLegInput[]): number {
 }
 
 /**
- * Tanzania 12% withholding tax on net winnings.
- * Partial Push: legs at 1.00 odds are treated as pushed and removed from the multiplier.
+ * Tanzania statutory settlement:
+ * - WON: gross_profit = stake*odds - stake; tax = gross_profit*0.12; net_profit = gross_profit*0.88; net_return = stake + net_profit
+ * - LOST: net_profit = -stake
+ * - PUSH / VOID: net_profit = 0 (stake returned in full)
+ * - Partial Push: drop 1.00 legs, then apply WON formula on remaining multiplier
  */
 export function calculateSettlement(
   stake: number,
