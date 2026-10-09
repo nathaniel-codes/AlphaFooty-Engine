@@ -1,36 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AlphaFooty Engine
 
-## Getting Started
+Production football opportunity scanner, bet journal, and analytics dashboard.
 
-First, run the development server:
+## Stack
+
+- Next.js 14 (App Router) + TypeScript + Tailwind CSS
+- SQLite via Prisma ORM
+- Recharts + Lucide React
+- Live fixture ingestion from ESPN public scoreboards (Sofascore / TheSportsDB fallbacks)
+
+## Modules
+
+1. **Opportunity Scanner** — Strategy D halftime 0-0 trigger, goal-volume engine, corner compression
+2. **Bet Journal** — calendar + multi-leg slip logger with Tanzania 12% withholding tax math
+3. **Analytics** — bankroll KPIs, equity curve, strategy breakdown, trade ledger
+
+## Local setup
 
 ```bash
+npm install
+cp .env.example .env
+npx prisma migrate deploy
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+App runs at [http://localhost:3080](http://localhost:3080).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Production
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npx prisma migrate deploy
+npm run build
+PORT=3080 npm start
+```
 
-## Learn More
+Use PM2:
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+pm2 start npm --name alphafooty-engine -- start
+```

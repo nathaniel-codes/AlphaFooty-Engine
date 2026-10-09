@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Settings {
+  id              Int    @id @default(1)
+  startingBankroll Float @default(1000000)
+  currency        String @default("TZS")
+  taxRate         Float  @default(0.12)
+  updatedAt       DateTime @updatedAt
+}
+
+model BetSlip {
+  id            String   @id @default(cuid())
+  date          DateTime
+  strategy      String
+  stake         Float
+  totalOdds     Float
+  grossPayout   Float
+  taxPaid       Float    @default(0)
+  netProfit     Float    @default(0)
+  netReturn     Float    @default(0)
+  status        String   @default("Pending")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  legs          BetLeg[]
+}
+
+model BetLeg {
+  id          String  @id @default(cuid())
+  betSlipId   String
+  matchName   String
+  market      String
+  odds        Float
+  betSlip     BetSlip @relation(fields: [betSlipId], references: [id], onDelete: Cascade)
+}
