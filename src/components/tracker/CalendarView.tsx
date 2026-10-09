@@ -115,6 +115,18 @@ export default function CalendarView({
           );
         })}
       </div>
+
+      <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-slate-400">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Profit day
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-rose-400" /> Loss day
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Break even / push
+        </span>
+      </div>
     </section>
   );
 }

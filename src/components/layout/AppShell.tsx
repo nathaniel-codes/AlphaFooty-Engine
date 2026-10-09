@@ -2,6 +2,7 @@
 
 import { Activity, CalendarDays, ChartLine, Radar, Settings } from "lucide-react";
 import { cn } from "@/lib/format";
+import SymbolKey from "@/components/layout/SymbolKey";
 
 export type TabId = "scanner" | "journal" | "analytics" | "settings";
 
@@ -61,7 +62,10 @@ export default function AppShell({
           ))}
         </nav>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+      <main className="mx-auto max-w-7xl px-4 py-6">
+        {children}
+        <SymbolKey />
+      </main>
     </div>
   );
 }
