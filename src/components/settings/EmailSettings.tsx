@@ -3,16 +3,11 @@
 import { useEffect, useState } from "react";
 import { Loader2, Mail, Send } from "lucide-react";
 
-interface EmailSettingsState {
-  emailEnabled: boolean;
-  alertEmail: string;
-}
-
 export default function EmailSettings() {
-  const [state, setState] = useState<EmailSettingsState>({
-    emailEnabled: true,
-    alertEmail: "nathanielmwaipopo@gmail.com",
-  });
+  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [maskedRecipient, setMaskedRecipient] = useState("configured");
+  const [newRecipient, setNewRecipient] = useState("");
+  const [showChange, setShowChange] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -23,10 +18,8 @@ export default function EmailSettings() {
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
-        setState({
-          emailEnabled: data.emailEnabled ?? true,
-          alertEmail: data.alertEmail || "nathanielmwaipopo@gmail.com",
-        });
+        setEmailEnabled(data.emailEnabled ?? true);
+        setMaskedRecipient(data.alertEmailMasked || "configured");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -36,12 +29,20 @@ export default function EmailSettings() {
     setMessage(null);
     setError(null);
     try {
+      const payload: Record<string, unknown> = { emailEnabled };
+      if (showChange && newRecipient.trim()) {
+        payload.alertEmail = newRecipient.trim();
+      }
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state),
+        body: JSON.stringify(payload),
       });
+      const data = await res.json();
       if (!res.ok) throw new Error("Failed to save email settings");
+      setMaskedRecipient(data.alertEmailMasked || maskedRecipient);
+      setNewRecipient("");
+      setShowChange(false);
       setMessage("Email alert settings saved.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
@@ -55,14 +56,15 @@ export default function EmailSettings() {
     setMessage(null);
     setError(null);
     try {
+      // Do not send recipient from the browser — server uses stored address
       const res = await fetch("/api/notifications/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: state.alertEmail }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Test email failed");
-      setMessage(`Test email sent to ${data.to}`);
+      setMessage(`Test email sent to ${data.toMasked || "configured recipient"}.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Test email failed");
     } finally {
@@ -93,21 +95,33 @@ export default function EmailSettings() {
         <span>Enable email notifications</span>
         <input
           type="checkbox"
-          checked={state.emailEnabled}
-          onChange={(e) => setState((s) => ({ ...s, emailEnabled: e.target.checked }))}
+          checked={emailEnabled}
+          onChange={(e) => setEmailEnabled(e.target.checked)}
           className="h-4 w-4 accent-emerald-500"
         />
       </label>
 
-      <label className="mt-3 block text-sm text-slate-300">
-        Alert recipient
-        <input
-          type="email"
-          value={state.alertEmail}
-          onChange={(e) => setState((s) => ({ ...s, alertEmail: e.target.value }))}
-          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-        />
-      </label>
+      <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-3">
+        <div className="text-xs uppercase tracking-wide text-slate-500">Alert recipient</div>
+        <div className="mt-1 font-mono text-sm text-slate-300">{maskedRecipient}</div>
+        <button
+          type="button"
+          onClick={() => setShowChange((v) => !v)}
+          className="mt-2 text-xs text-emerald-400 hover:text-emerald-300"
+        >
+          {showChange ? "Cancel change" : "Change recipient"}
+        </button>
+        {showChange && (
+          <input
+            type="email"
+            autoComplete="off"
+            placeholder="Enter new email address"
+            value={newRecipient}
+            onChange={(e) => setNewRecipient(e.target.value)}
+            className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+          />
+        )}
+      </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button

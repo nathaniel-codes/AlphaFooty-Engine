@@ -1,12 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { sendTestEmail } from "@/lib/notifications/emailDispatcher";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
-    const body = await req.json().catch(() => ({}));
-    const result = await sendTestEmail(body.to);
+    const result = await sendTestEmail();
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(

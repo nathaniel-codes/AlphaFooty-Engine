@@ -9,6 +9,7 @@ import {
   scoreLine,
 } from "@/lib/scraper/sofascore";
 import { formatKickoffEAT } from "@/lib/executionState";
+import { maskEmail } from "@/lib/format";
 import { sendMail, getMailConfig } from "./mailer";
 import {
   AlertEmailPayload,
@@ -455,10 +456,11 @@ export async function runEmailDispatch(): Promise<DispatchResult> {
   };
 }
 
-export async function sendTestEmail(to?: string) {
+export async function sendTestEmail(_ignoredClientTo?: string) {
   const settings = await ensureSettings();
   const cfg = getMailConfig();
-  const recipient = to || settings.alertEmail || cfg.defaultTo;
+  // Always use server-stored recipient — never trust a client-supplied address for tests
+  const recipient = settings.alertEmail || cfg.defaultTo;
   const payload: AlertEmailPayload = {
     opportunityType: "SMTP Test",
     homeTeam: "AlphaFooty",
@@ -485,5 +487,5 @@ export async function sendTestEmail(to?: string) {
     text: buildAlertText(payload),
   });
 
-  return { ok: true, to: recipient };
+  return { ok: true, toMasked: maskEmail(recipient) };
 }

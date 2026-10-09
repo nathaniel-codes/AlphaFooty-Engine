@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureSettings, prisma } from "@/lib/prisma";
+import { maskEmail } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+function publicSettings<T extends { alertEmail: string }>(settings: T) {
+  const { alertEmail, ...rest } = settings;
+  return {
+    ...rest,
+    alertEmailMasked: maskEmail(alertEmail),
+    hasAlertEmail: Boolean(alertEmail),
+  };
+}
+
 export async function GET() {
   const settings = await ensureSettings();
-  return NextResponse.json(settings);
+  return NextResponse.json(publicSettings(settings));
 }
 
 export async function PUT(req: NextRequest) {
@@ -19,13 +29,21 @@ export async function PUT(req: NextRequest) {
   if (body.currency != null) data.currency = body.currency || "TZS";
   if (body.taxRate != null) data.taxRate = Number(body.taxRate) || 0.12;
   if (typeof body.emailEnabled === "boolean") data.emailEnabled = body.emailEnabled;
-  if (body.alertEmail != null) {
-    data.alertEmail = String(body.alertEmail || "nathanielmwaipopo@gmail.com");
+
+  // Only update recipient when a full new address is explicitly provided
+  const nextEmail = typeof body.alertEmail === "string" ? body.alertEmail.trim() : "";
+  if (
+    nextEmail &&
+    nextEmail.includes("@") &&
+    !nextEmail.includes("•") &&
+    nextEmail.length > 5
+  ) {
+    data.alertEmail = nextEmail;
   }
 
   const settings = await prisma.settings.update({
     where: { id: 1 },
     data,
   });
-  return NextResponse.json(settings);
+  return NextResponse.json(publicSettings(settings));
 }
