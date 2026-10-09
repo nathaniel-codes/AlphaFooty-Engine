@@ -456,7 +456,7 @@ export async function runEmailDispatch(): Promise<DispatchResult> {
   };
 }
 
-export async function sendTestEmail(_ignoredClientTo?: string) {
+export async function sendTestEmail() {
   const settings = await ensureSettings();
   const cfg = getMailConfig();
   // Always use server-stored recipient — never trust a client-supplied address for tests
