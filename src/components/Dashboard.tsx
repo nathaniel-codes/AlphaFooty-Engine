@@ -9,6 +9,7 @@ import BetSlipModal, { type SlipRecord } from "@/components/tracker/BetSlipModal
 import EquityChart from "@/components/analytics/EquityChart";
 import StrategyBreakdown from "@/components/analytics/StrategyBreakdown";
 import TradeTable from "@/components/analytics/TradeTable";
+import EmailSettings from "@/components/settings/EmailSettings";
 import { formatPct, formatTZS } from "@/lib/format";
 import type { Opportunity } from "@/lib/types";
 
@@ -75,11 +76,40 @@ export default function Dashboard() {
       setOpportunities(data.opportunities || []);
       setScanMeta(data.meta);
       setScanError(data.error);
+      // Fire-and-forget alert evaluation on each scan poll
+      void fetch("/api/notifications/dispatch", { method: "POST" }).catch(() => null);
     } catch (e) {
       setScanError(e instanceof Error ? e.message : "Scanner unavailable");
     } finally {
       setScanLoading(false);
     }
+  }, []);
+
+  // Deep-link from email: /?tab=journal&log=1&match=...&market=...&odds=...&strategy=...
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get("tab") as TabId | null;
+    if (tabParam && ["scanner", "journal", "analytics", "settings"].includes(tabParam)) {
+      setTab(tabParam);
+    }
+    if (params.get("log") !== "1") return;
+    const match = params.get("match") || "";
+    const market = params.get("market") || "Over 1.5";
+    const odds = Number(params.get("odds") || 1.4);
+    const strategy =
+      params.get("strategy") || "Strategy D (High Tempo Goal Engine)";
+    setEditing({
+      date: new Date().toISOString(),
+      strategy,
+      stake: 10000,
+      status: "Pending",
+      notes: "Opened from AlphaFooty alert email",
+      legs: [{ matchName: match, market, odds }],
+    });
+    setSeedOp(null);
+    setModalOpen(true);
+    setTab("journal");
   }, []);
 
   const loadAnalytics = useCallback(async () => {
@@ -266,41 +296,44 @@ export default function Dashboard() {
       )}
 
       {tab === "settings" && (
-        <section className="max-w-lg rounded-xl border border-slate-700/80 bg-slate-900/50 p-5">
-          <h2 className="text-xl font-semibold text-slate-100">Settings</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Starting bankroll updates KPI cards in real time with settled P/L.
-          </p>
-          <label className="mt-5 block text-sm text-slate-300">
-            Starting Bankroll (TZS)
-            <input
-              type="number"
-              value={startingBankroll}
-              onChange={(e) => setStartingBankroll(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-            />
-          </label>
-          <button
-            disabled={savingSettings}
-            onClick={async () => {
-              setSavingSettings(true);
-              await fetch("/api/settings", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ startingBankroll }),
-              });
-              await refreshAll();
-              setSavingSettings(false);
-            }}
-            className="mt-4 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
-          >
-            {savingSettings ? "Saving…" : "Save Settings"}
-          </button>
-          <p className="mt-6 text-xs text-slate-500">
-            Tax engine: Tanzania 12% withholding on net winnings. Data store: local SQLite via
-            Prisma. Scanner source: Sofascore public JSON endpoints.
-          </p>
-        </section>
+        <div>
+          <section className="max-w-lg rounded-xl border border-slate-700/80 bg-slate-900/50 p-5">
+            <h2 className="text-xl font-semibold text-slate-100">Settings</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Starting bankroll updates KPI cards in real time with settled P/L.
+            </p>
+            <label className="mt-5 block text-sm text-slate-300">
+              Starting Bankroll (TZS)
+              <input
+                type="number"
+                value={startingBankroll}
+                onChange={(e) => setStartingBankroll(Number(e.target.value))}
+                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+              />
+            </label>
+            <button
+              disabled={savingSettings}
+              onClick={async () => {
+                setSavingSettings(true);
+                await fetch("/api/settings", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ startingBankroll }),
+                });
+                await refreshAll();
+                setSavingSettings(false);
+              }}
+              className="mt-4 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+            >
+              {savingSettings ? "Saving…" : "Save Settings"}
+            </button>
+            <p className="mt-6 text-xs text-slate-500">
+              Tax engine: Tanzania 12% withholding on net winnings. SQLite + Prisma persistence.
+              Alerts via SMTP (port 587) to your configured inbox.
+            </p>
+          </section>
+          <EmailSettings />
+        </div>
       )}
 
       <BetSlipModal

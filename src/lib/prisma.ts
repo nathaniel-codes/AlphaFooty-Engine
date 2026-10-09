@@ -19,6 +19,8 @@ export async function ensureSettings() {
       startingBankroll: 1_000_000,
       currency: "TZS",
       taxRate: 0.12,
+      emailEnabled: true,
+      alertEmail: "nathanielmwaipopo@gmail.com",
     },
   });
 }
