@@ -1,13 +1,17 @@
 import type { Opportunity } from "../types";
 import { isWhitelistedEvent } from "@/lib/leagueWhitelist";
 import {
+  evaluateCornerCompression,
+  evaluateGoalVolume,
+} from "@/lib/scanner/fixtureScanner";
+import { fetchLeagueStandings } from "@/lib/scraper/teamProfiles";
+import {
   NormalizedEvent,
   competitionName,
   fetchAllNormalizedEvents,
   fetchEventStatistics,
   isHalftimeWindow,
   isHighTempoLeague,
-  leagueGoalAverage,
   scoreLine,
 } from "./sofascore";
 
@@ -18,7 +22,6 @@ function badgeFor(event: NormalizedEvent): Opportunity["badge"] {
 }
 
 function passesShotGate(shotsTotal: number, shotsOnTarget: number): boolean {
-  // CRITICAL: abort if SoT <= 2
   return shotsTotal >= 8 && shotsOnTarget >= 3;
 }
 
@@ -73,17 +76,19 @@ async function detectHalftimeTriggers(events: NormalizedEvent[]): Promise<Opport
   return opportunities;
 }
 
-/** Engine B — Pre-match / live goal volume (whitelist + GPG ≥ 3.0) */
+/** Engine B — Goal volume: combined home GPG + away GPG (never league avg alone) */
 async function detectGoalVolume(events: NormalizedEvent[]): Promise<Opportunity[]> {
   const pool = events.filter(
     (e) => isWhitelistedEvent(e) && e.status !== "finished"
   );
 
-  const leagueKeys = Array.from(new Set(pool.map((e) => e.leagueKey)));
-  const avgMap = new Map<string, number>();
+  const leagues = Array.from(
+    new Set(pool.map((e) => e.espnLeague || e.leagueKey).filter(Boolean))
+  );
+  const standingsMap = new Map<string, Awaited<ReturnType<typeof fetchLeagueStandings>>>();
   await Promise.all(
-    leagueKeys.map(async (key) => {
-      avgMap.set(key, await leagueGoalAverage(key, events));
+    leagues.map(async (league) => {
+      standingsMap.set(league, await fetchLeagueStandings(league));
     })
   );
 
@@ -93,8 +98,9 @@ async function detectGoalVolume(events: NormalizedEvent[]): Promise<Opportunity[
   for (const event of pool) {
     if (seen.has(event.id)) continue;
     seen.add(event.id);
-    const avg = avgMap.get(event.leagueKey);
-    if (avg == null || avg < 3.0) continue;
+    const league = event.espnLeague || event.leagueKey;
+    const hit = evaluateGoalVolume(event, standingsMap.get(league) || []);
+    if (!hit) continue;
 
     opportunities.push({
       id: `gv-${event.id}`,
@@ -106,11 +112,9 @@ async function detectGoalVolume(events: NormalizedEvent[]): Promise<Opportunity[
       eventId: Number(event.espnEventId) || undefined,
       minute: event.minute,
       score: event.status === "scheduled" ? "vs" : scoreLine(event),
-      leagueAvgGoals: avg,
+      leagueAvgGoals: hit.combinedGpg ?? null,
       recommendedMarket: "Asian Total Over 2.0",
-      rationale: `League GPG ${avg.toFixed(
-        2
-      )} (≥ 3.0). Primary: Asian Over 2.0 (push on exactly 2). Fallback: Over 1.5 in a double, or Over 2.5 standalone @ ≥1.50.`,
+      rationale: hit.tacticalDelta,
       suggestedOdds: 1.4,
       kickoff: event.kickoff,
       detectedAt: new Date().toISOString(),
@@ -119,19 +123,19 @@ async function detectGoalVolume(events: NormalizedEvent[]): Promise<Opportunity[
 
   return opportunities
     .sort((a, b) => (b.leagueAvgGoals || 0) - (a.leagueAvgGoals || 0))
-    .slice(0, 18);
+    .slice(0, 12);
 }
 
-/** Engine C — Low Block Corner Compression */
+/** Engine C — Corners: live boxscore OR pre-match static possession dictionary */
 async function detectCornerCompression(events: NormalizedEvent[]): Promise<Opportunity[]> {
-  const candidates = events
+  const opportunities: Opportunity[] = [];
+
+  const live = events
     .filter((e) => isWhitelistedEvent(e) && (e.status === "live" || e.status === "halftime"))
     .slice(0, 15);
 
-  const opportunities: Opportunity[] = [];
-
   await Promise.all(
-    candidates.map(async (event) => {
+    live.map(async (event) => {
       const stats = await fetchEventStatistics(event);
       if (!stats || stats.possessionHome == null || stats.possessionAway == null) return;
       if (!passesCornerPossession(stats.possessionHome, stats.possessionAway)) return;
@@ -154,13 +158,51 @@ async function detectCornerCompression(events: NormalizedEvent[]): Promise<Oppor
         recommendedMarket: "Home Over 5.5 Team Corners",
         rationale: `Low Block Corner Compression: home ${stats.possessionHome}% / away ${stats.possessionAway}% (Δ +${delta.toFixed(
           0
-        )}%). Primary Home Over 5.5 @ 1.65–1.80. Fallback: Match Corners Over 9.5/10.5 (expected 10–13).`,
+        )}%). Primary Home Over 5.5. Fallback: Match Corners Over 8.5/9.5.`,
         suggestedOdds: 1.7,
         kickoff: event.kickoff,
         detectedAt: new Date().toISOString(),
       });
     })
   );
+
+  // Pre-match: static possession dictionary (never live boxscore)
+  const scheduled = events.filter(
+    (e) => isWhitelistedEvent(e) && e.status === "scheduled"
+  );
+  const leagues = Array.from(
+    new Set(scheduled.map((e) => e.espnLeague || e.leagueKey).filter(Boolean))
+  );
+  const standingsMap = new Map<string, Awaited<ReturnType<typeof fetchLeagueStandings>>>();
+  await Promise.all(
+    leagues.map(async (league) => {
+      standingsMap.set(league, await fetchLeagueStandings(league));
+    })
+  );
+
+  for (const event of scheduled) {
+    const league = event.espnLeague || event.leagueKey;
+    const hit = evaluateCornerCompression(event, standingsMap.get(league) || []);
+    if (!hit) continue;
+    opportunities.push({
+      id: `cc-pre-${event.id}`,
+      type: "corner_compression",
+      badge: "Upcoming",
+      homeTeam: event.homeTeam,
+      awayTeam: event.awayTeam,
+      competition: competitionName(event),
+      eventId: Number(event.espnEventId) || undefined,
+      minute: null,
+      score: "vs",
+      possessionHome: hit.homePoss ?? null,
+      possessionAway: hit.awayPoss ?? null,
+      recommendedMarket: "Home Over 5.5 Team Corners",
+      rationale: hit.tacticalDelta,
+      suggestedOdds: 1.55,
+      kickoff: event.kickoff,
+      detectedAt: new Date().toISOString(),
+    });
+  }
 
   return opportunities;
 }
@@ -205,7 +247,7 @@ export async function runOpportunityScan(): Promise<ScanResult> {
     const [ht, gv, cc] = await Promise.all([
       detectHalftimeTriggers(whitelisted),
       detectGoalVolume(whitelisted),
-      detectCornerCompression(live),
+      detectCornerCompression(whitelisted),
     ]);
 
     const opportunities = [...ht, ...cc, ...gv];

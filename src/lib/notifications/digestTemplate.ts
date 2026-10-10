@@ -12,6 +12,7 @@ export interface DigestMatchCard {
   fallbackLine: string;
   expectedVolume: string;
   oddsRange: string;
+  edgeScore?: number;
 }
 
 export function todayDateEAT(d = new Date()): string {
@@ -39,16 +40,10 @@ export function buildDigestSubject(count: number, digestDate: string): string {
   return `[AlphaFooty Daily Digest] ${count} High-Probability Matchups for ${formatDisplayDateEAT(digestDate)}`;
 }
 
-export function buildDigestHtml(opts: {
-  digestDate: string;
-  matches: DigestMatchCard[];
-  trackerUrl: string;
-}): string {
-  const cards = opts.matches
-    .map((m) => {
-      return `
+function renderCard(m: DigestMatchCard): string {
+  return `
       <tr>
-        <td style="padding:0 24px 16px;">
+        <td style="padding:0 24px 12px;">
           <div style="border:1px solid #1f2937;border-radius:6px;padding:14px;">
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">
               ${m.competition} · ${m.kickoffEAT}
@@ -70,8 +65,39 @@ export function buildDigestHtml(opts: {
           </div>
         </td>
       </tr>`;
-    })
-    .join("");
+}
+
+function sectionHeader(title: string, subtitle: string): string {
+  return `
+      <tr>
+        <td style="padding:18px 24px 8px;">
+          <div style="font-size:14px;font-weight:700;color:#f8fafc;">${title}</div>
+          <div style="margin-top:2px;font-size:12px;color:#64748b;">${subtitle}</div>
+        </td>
+      </tr>`;
+}
+
+export function buildDigestHtml(opts: {
+  digestDate: string;
+  matches: DigestMatchCard[];
+  trackerUrl: string;
+}): string {
+  const corners = opts.matches.filter((m) => m.strategy === "corner_compression");
+  const goals = opts.matches.filter((m) => m.strategy === "goal_volume");
+
+  const cornerBlock = corners.length
+    ? sectionHeader(
+        "Section A · Corner Compression Watchlist",
+        "Primary: Home Team Over 5.5 Corners · Fallback: Match Over 8.5 / 9.5"
+      ) + corners.map(renderCard).join("")
+    : "";
+
+  const goalBlock = goals.length
+    ? sectionHeader(
+        "Section B · Goal Volume Watchlist",
+        "Primary: Asian Over 2.0 Goals · Fallback: Over 1.5"
+      ) + goals.map(renderCard).join("")
+    : "";
 
   return `<!DOCTYPE html>
 <html>
@@ -85,11 +111,12 @@ export function buildDigestHtml(opts: {
             <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;">AlphaFooty Engine</div>
             <div style="margin-top:8px;font-size:20px;font-weight:700;color:#f8fafc;">Daily Matchday Digest</div>
             <div style="margin-top:4px;font-size:13px;color:#64748b;">
-              ${formatDisplayDateEAT(opts.digestDate)} · ${opts.matches.length} qualifying matchup${opts.matches.length === 1 ? "" : "s"}
+              ${formatDisplayDateEAT(opts.digestDate)} · ${opts.matches.length} top-edge matchup${opts.matches.length === 1 ? "" : "s"} (capped)
             </div>
           </td>
         </tr>
-        ${cards}
+        ${cornerBlock}
+        ${goalBlock}
         <tr>
           <td style="padding:8px 24px 24px;" align="center">
             <a href="${opts.trackerUrl}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 18px;border-radius:6px;">
@@ -109,23 +136,48 @@ export function buildDigestText(opts: {
   matches: DigestMatchCard[];
   trackerUrl: string;
 }): string {
+  const corners = opts.matches.filter((m) => m.strategy === "corner_compression");
+  const goals = opts.matches.filter((m) => m.strategy === "goal_volume");
   const lines = [
     `AlphaFooty Daily Digest — ${formatDisplayDateEAT(opts.digestDate)}`,
-    `${opts.matches.length} qualifying matchups`,
+    `${opts.matches.length} top-edge matchups (capped)`,
     "",
   ];
-  for (const m of opts.matches) {
-    lines.push(
-      `${m.competition} · ${m.kickoffEAT}`,
-      `${m.homeTeam} vs ${m.awayTeam}`,
-      `Strategy: ${m.strategyLabel}`,
-      m.tacticalDelta,
-      `Primary: ${m.primaryLine} @ ${m.oddsRange}`,
-      `Fallback: ${m.fallbackLine}`,
-      m.expectedVolume,
-      ""
-    );
+
+  if (corners.length) {
+    lines.push("=== Section A: Corner Compression Watchlist ===");
+    lines.push("Primary: Home Team Over 5.5 Corners | Fallback: Match Over 8.5 / 9.5");
+    lines.push("");
+    for (const m of corners) {
+      lines.push(
+        `${m.competition} · ${m.kickoffEAT}`,
+        `${m.homeTeam} vs ${m.awayTeam}`,
+        m.tacticalDelta,
+        `Primary: ${m.primaryLine} @ ${m.oddsRange}`,
+        `Fallback: ${m.fallbackLine}`,
+        m.expectedVolume,
+        ""
+      );
+    }
   }
+
+  if (goals.length) {
+    lines.push("=== Section B: Goal Volume Watchlist ===");
+    lines.push("Primary: Asian Over 2.0 Goals");
+    lines.push("");
+    for (const m of goals) {
+      lines.push(
+        `${m.competition} · ${m.kickoffEAT}`,
+        `${m.homeTeam} vs ${m.awayTeam}`,
+        m.tacticalDelta,
+        `Primary: ${m.primaryLine} @ ${m.oddsRange}`,
+        `Fallback: ${m.fallbackLine}`,
+        m.expectedVolume,
+        ""
+      );
+    }
+  }
+
   lines.push(`Open tracker: ${opts.trackerUrl}`);
   return lines.join("\n");
 }
