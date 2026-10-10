@@ -166,11 +166,13 @@ export async function runDailyMorningDigest(options?: {
   const existing = await prisma.digestLog.findUnique({
     where: { digestDate },
   });
-  if (existing && !force) {
+  // Only hard-lock the day after a successful send. A prior "0 found" must not
+  // block the 10:00 EAT run if an early/deploy probe already logged empty.
+  if (existing?.sent && !force) {
     return {
       digestDate,
       alreadyRan: true,
-      sent: existing.sent,
+      sent: true,
       qualifyingCount: existing.qualifyingCount,
       statusMessage: existing.statusMessage,
       matches: [],

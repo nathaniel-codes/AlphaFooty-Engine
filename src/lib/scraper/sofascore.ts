@@ -93,16 +93,25 @@ async function fetchJson<T>(
   }
 }
 
+/** Calendar date in Africa/Nairobi (EAT) as YYYYMMDD for ESPN scoreboards */
 function todayEspnDate(): string {
-  const d = new Date();
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}${m}${day}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date()); // YYYY-MM-DD
+  return parts.replace(/-/g, "");
 }
 
+/** Calendar date in Africa/Nairobi (EAT) as YYYY-MM-DD */
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 function mapEspnStatus(typeName?: string, detail?: string): NormalizedEvent["status"] {
